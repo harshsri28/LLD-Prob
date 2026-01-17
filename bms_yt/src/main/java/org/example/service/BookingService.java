@@ -58,8 +58,11 @@ public class BookingService {
 
         // 3. Acquire Locks with Rollback
         List<String> lockedSeats = new ArrayList<>();
+        List<String> sortedSeatIds = new ArrayList<>(seatIds);
+        Collections.sort(sortedSeatIds);
+
         try {
-            for(String seatId : seatIds){
+            for(String seatId : sortedSeatIds){
                 String key = show.getId() + ":" + seatId;
                 if(!lockProvider.tryLock(key, userId, TTL)){
                     throw new RuntimeException("Seat " + seatId + " is temporarily locked");
