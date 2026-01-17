@@ -4,19 +4,13 @@ import org.example.enums.BookingStatus;
 import org.example.enums.PaymentType;
 import org.example.factory.PaymentStrategyFactory;
 import org.example.models.Booking;
-import org.example.models.Movie;
 import org.example.models.Seat;
 import org.example.models.Show;
 import org.example.repository.BookingRepository;
-import org.example.repository.MovieRepository;
 import org.example.strategy.lockStrategy.LockProvider;
 import org.example.strategy.payment.PaymentStrategy;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class BookingService {
