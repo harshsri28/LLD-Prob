@@ -5,7 +5,7 @@ import org.example.handlers.LogHandler;
 import org.example.models.LogMessage;
 
 public class Logger {
-    static Logger instance = new Logger();
+    static Logger instance ;
 
     LogHandler handlerChain;
 
@@ -14,6 +14,9 @@ public class Logger {
     }
 
     public static Logger getInstance() {
+        if (instance == null) {
+            instance = new Logger();
+        }
         return instance;
     }
 
