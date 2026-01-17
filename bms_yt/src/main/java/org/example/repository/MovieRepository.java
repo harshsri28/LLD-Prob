@@ -1,0 +1,18 @@
+package org.example.repository;
+
+import org.example.models.Movie;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class MovieRepository {
+    Map<String, Movie> map = new HashMap<>();
+
+    public  void save(Movie movie) {
+        map.put(movie.getId(), movie);
+    }
+
+    public Movie get(String id) {
+        return map.get(id);
+    }
+}
