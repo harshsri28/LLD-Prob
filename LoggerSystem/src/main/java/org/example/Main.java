@@ -3,6 +3,7 @@ package org.example;
 import org.example.appenders.ConsoleAppender;
 import org.example.appenders.FileAppender;
 import org.example.enums.Loglevel;
+import org.example.formatter.JsonFormatter;
 import org.example.formatter.PlainTextFornatter;
 import org.example.services.LogHandlerConfiguration;
 import org.example.services.Logger;
@@ -12,6 +13,7 @@ public class Main {
         Logger logger = Logger.getInstance();
 
         LogHandlerConfiguration.addAppenderForLevel(Loglevel.INFO, new ConsoleAppender(new PlainTextFornatter()));
+        LogHandlerConfiguration.addAppenderForLevel(Loglevel.INFO, new FileAppender(new JsonFormatter(), "info.log"));
 
         LogHandlerConfiguration.addAppenderForLevel(Loglevel.ERROR, new ConsoleAppender(new PlainTextFornatter()));
 
