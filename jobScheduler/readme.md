@@ -88,7 +88,74 @@ To simulate a distributed environment where multiple scheduler instances might p
 
 ---
 
-## 5. Project Structure
+## 5. Class Diagram (UML)
+
+```mermaid
+classDiagram
+    class JobScheduler {
+        -PriorityQueue readyQueue
+        -PriorityQueue waitingQueue
+        -Set activeLocks
+        -ExecutorService workers
+        +getInstance()
+        +submit(Job)
+        +start()
+        -execute(Job)
+    }
+
+    class Job {
+        -String id
+        -int priority
+        -long nextExecutionTime
+        -JobCommand command
+        +execute()
+    }
+
+    class JobCommand {
+        <<interface>>
+        +execute()
+    }
+
+    class SchedulingStrategy {
+        <<interface>>
+        +nextExecutionTime() Instant
+        +isRecurring() boolean
+    }
+
+    class OneTimeStrategy {
+        +nextExecutionTime()
+    }
+    class FixedRateStrategy {
+        +nextExecutionTime()
+    }
+    class CronStrategy {
+        +nextExecutionTime()
+    }
+
+    class RetryPolicy {
+        <<interface>>
+        +shouldRetry(int) boolean
+        +nextDelayMs(int) long
+    }
+
+    class JobListener {
+        <<interface>>
+        +onStart(Job)
+        +onSuccess(Job)
+        +onFailure(Job, Exception)
+    }
+
+    JobScheduler --> Job : manages
+    JobScheduler --> JobListener : notifies
+    Job --> SchedulingStrategy : uses
+    Job --> RetryPolicy : uses
+    Job --> JobCommand : has
+    SchedulingStrategy <|-- OneTimeStrategy
+    SchedulingStrategy <|-- FixedRateStrategy
+    SchedulingStrategy <|-- CronStrategy
+```
+
+## 6. Project Structure
 
 ```
 src/main/java/org/example/
@@ -116,7 +183,7 @@ src/main/java/org/example/
 
 ---
 
-## 6. How to Run
+## 7. How to Run
 
 ### Prerequisites
 *   Java 8 or higher.
@@ -147,7 +214,7 @@ Cron Job C executed
 
 ---
 
-## 7. Future Improvements (Production Scale)
+## 8. Future Improvements (Production Scale)
 To scale this beyond a single JVM:
 1.  **Storage**: Replace in-memory `PriorityQueue` with **Redis Sorted Sets** or **Kafka**.
 2.  **Locking**: Replace `ConcurrentHashMap` with **Redis Distributed Locks (Redlock)** or **Zookeeper**.
