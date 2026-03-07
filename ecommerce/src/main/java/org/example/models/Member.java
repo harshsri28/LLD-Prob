@@ -5,6 +5,7 @@ import org.example.enums.UserRole;
 import org.example.observer.NotificationObserver;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class Member extends Account implements NotificationObserver {
@@ -14,7 +15,7 @@ public class Member extends Account implements NotificationObserver {
     public Member(String userName, String password, String name, Address address) {
         super(userName, password, name, address, UserRole.MEMBER);
         this.cart = new ShoppingCart();
-        this.orders = new ArrayList<>();
+        this.orders = Collections.synchronizedList(new ArrayList<>());
     }
 
     @Override

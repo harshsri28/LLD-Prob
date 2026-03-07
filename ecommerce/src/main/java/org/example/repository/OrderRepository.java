@@ -4,14 +4,14 @@ import org.example.enums.OrderStatus;
 import org.example.models.Order;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class OrderRepository {
-    private Map<String, Order> orders = new HashMap<>();
+    private Map<String, Order> orders = new ConcurrentHashMap<>();
 
     public void addOrder(Order order) {
         orders.put(order.getOrderNumber(), order);

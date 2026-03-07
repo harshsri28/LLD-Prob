@@ -18,8 +18,11 @@ import org.example.repository.OrderRepository;
 import org.example.repository.ProductRepository;
 import org.example.strategy.paymentStrategy.PaymentStrategy;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class OrderService {
     // Singleton with double-checked locking (same as BookingService in carRental)
@@ -28,6 +31,10 @@ public class OrderService {
     private OrderRepository orderRepo;
     private ProductRepository productRepo;
     private NotificationService notificationService;
+
+    // Per-member locks to prevent double-ordering for the same member
+    // while allowing different members to place orders concurrently
+    private final Map<String, Object> memberLocks = new ConcurrentHashMap<>();
 
     private OrderService(OrderRepository orderRepo, ProductRepository productRepo, NotificationService notificationService) {
         this.orderRepo = orderRepo;
@@ -53,60 +60,65 @@ public class OrderService {
             return Optional.empty();
         }
 
-        ShoppingCart cart = member.getCart();
-        List<Item> cartItems = cart.getItems();
+        // BUG 3 FIX: Per-member lock prevents double-ordering the same cart
+        Object lock = memberLocks.computeIfAbsent(member.getUserName(), k -> new Object());
+        synchronized (lock) {
+            ShoppingCart cart = member.getCart();
+            List<Item> cartItems = cart.getItems();
 
-        if (cartItems.isEmpty()) {
-            System.out.println("Cart is empty. Cannot place order.");
-            return Optional.empty();
-        }
-
-        // Validate stock and decrement
-        for (Item item : cartItems) {
-            Optional<Product> product = productRepo.getProductById(item.getProductId());
-            if (!product.isPresent()) {
-                System.out.println("Product not found: " + item.getProductId());
+            if (cartItems.isEmpty()) {
+                System.out.println("Cart is empty. Cannot place order.");
                 return Optional.empty();
             }
-            if (!product.get().decrementStock(item.getQuantity())) {
-                System.out.println("Insufficient stock for product: " + product.get().getName());
-                return Optional.empty();
-            }
-        }
 
-        // Build order
-        Order order = Order.builder()
-                .items(cartItems)
-                .totalAmount(cart.getTotalAmount())
-                .shippingAddress(member.getShippingAddress())
-                .build();
+            // BUG 2 FIX: Track successfully decremented items for rollback
+            List<Item> decrementedItems = new ArrayList<>();
 
-        // Process payment
-        PaymentProcessor paymentProcessor = new PaymentProcessor(paymentStrategy);
-        if (!paymentProcessor.pay(order)) {
-            System.out.println("Payment failed for order: " + order.getOrderNumber());
-            // Restore stock
             for (Item item : cartItems) {
                 Optional<Product> product = productRepo.getProductById(item.getProductId());
-                product.ifPresent(p -> p.incrementStock(item.getQuantity()));
+                if (!product.isPresent()) {
+                    System.out.println("Product not found: " + item.getProductId());
+                    rollbackStock(decrementedItems);
+                    return Optional.empty();
+                }
+                if (!product.get().decrementStock(item.getQuantity())) {
+                    System.out.println("Insufficient stock for product: " + product.get().getName());
+                    rollbackStock(decrementedItems);
+                    return Optional.empty();
+                }
+                decrementedItems.add(item);
             }
-            return Optional.empty();
+
+            // Build order
+            Order order = Order.builder()
+                    .items(cartItems)
+                    .totalAmount(cart.getTotalAmount())
+                    .shippingAddress(member.getShippingAddress())
+                    .build();
+
+            // Process payment
+            PaymentProcessor paymentProcessor = new PaymentProcessor(paymentStrategy);
+            if (!paymentProcessor.pay(order)) {
+                System.out.println("Payment failed for order: " + order.getOrderNumber());
+                rollbackStock(decrementedItems);
+                return Optional.empty();
+            }
+
+            // Place order
+            member.placeOrder(order);
+            order.addOrderLog(new OrderLog(order.getOrderNumber(), OrderStatus.PENDING, "Order placed successfully."));
+            orderRepo.addOrder(order);
+
+            // Clear cart after successful order
+            cart.clear();
+
+            // Notify
+            notificationService.notifyObservers(NotificationType.ORDER_CONFIRMATION,
+                    "Order " + order.getOrderNumber() + " placed successfully. Total: $" + order.getTotalAmount());
+
+            System.out.println("Order placed: " + order);
+            return Optional.of(order);
         }
-
-        // Place order
-        member.placeOrder(order);
-        order.addOrderLog(new OrderLog(order.getOrderNumber(), OrderStatus.PENDING, "Order placed successfully."));
-        orderRepo.addOrder(order);
-
-        // Clear cart after successful order
-        cart.clear();
-
-        // Notify
-        notificationService.notifyObservers(NotificationType.ORDER_CONFIRMATION,
-                "Order " + order.getOrderNumber() + " placed successfully. Total: $" + order.getTotalAmount());
-
-        System.out.println("Order placed: " + order);
-        return Optional.of(order);
     }
 
     public boolean cancelOrder(Member member, String orderNumber) {
@@ -117,14 +129,19 @@ public class OrderService {
         }
 
         Order order = orderOpt.get();
-        if (order.getStatus() == OrderStatus.SHIPPED || order.getStatus() == OrderStatus.COMPLETED) {
-            System.out.println("Cannot cancel order " + orderNumber + " - already " + order.getStatus());
-            return false;
+
+        // BUG 7 FIX: Synchronize on the order object to prevent double-cancel race
+        synchronized (order) {
+            if (order.getStatus() == OrderStatus.SHIPPED || order.getStatus() == OrderStatus.COMPLETED
+                    || order.getStatus() == OrderStatus.CANCELED) {
+                System.out.println("Cannot cancel order " + orderNumber + " - already " + order.getStatus());
+                return false;
+            }
+
+            order.cancel();
         }
 
-        order.cancel();
-
-        // Restore stock
+        // Restore stock (safe outside lock - incrementStock is atomic via addAndGet)
         for (Item item : order.getItems()) {
             Optional<Product> product = productRepo.getProductById(item.getProductId());
             product.ifPresent(p -> p.incrementStock(item.getQuantity()));
@@ -144,14 +161,18 @@ public class OrderService {
         }
 
         Order order = orderOpt.get();
-        if (order.getStatus() != OrderStatus.COMPLETED) {
-            System.out.println("Can only return completed orders. Current status: " + order.getStatus());
-            return null;
+
+        // Synchronize on order to prevent concurrent status transitions
+        synchronized (order) {
+            if (order.getStatus() != OrderStatus.COMPLETED) {
+                System.out.println("Can only return completed orders. Current status: " + order.getStatus());
+                return null;
+            }
+
+            order.setStatus(OrderStatus.RETURN_REQUESTED);
         }
 
-        order.setStatus(OrderStatus.RETURN_REQUESTED);
         ReturnRequest returnRequest = new ReturnRequest(orderNumber, reason, order.getTotalAmount());
-
         order.addOrderLog(new OrderLog(orderNumber, OrderStatus.RETURN_REQUESTED, "Return requested: " + reason));
         notificationService.notifyObservers(NotificationType.REFUND_STATUS,
                 "Return requested for order " + orderNumber);
@@ -192,5 +213,15 @@ public class OrderService {
 
     public List<Order> getAllOrders() {
         return orderRepo.getAllOrders();
+    }
+
+    /**
+     * Rollback stock for items that were already decremented when a later item fails.
+     */
+    private void rollbackStock(List<Item> decrementedItems) {
+        for (Item item : decrementedItems) {
+            Optional<Product> product = productRepo.getProductById(item.getProductId());
+            product.ifPresent(p -> p.incrementStock(item.getQuantity()));
+        }
     }
 }

@@ -1,6 +1,7 @@
 package org.example.models;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -22,7 +23,7 @@ public class Product {
         this.category = category;
         this.seller = seller;
         this.availableItemCount = new AtomicInteger(0);
-        this.reviews = new ArrayList<>();
+        this.reviews = Collections.synchronizedList(new ArrayList<>());
     }
 
     public boolean updatePrice(double newPrice) {
@@ -32,11 +33,16 @@ public class Product {
     }
 
     public boolean decrementStock(int quantity) {
-        int current = availableItemCount.get();
-        if (current < quantity) {
-            return false;
+        while (true) {
+            int current = availableItemCount.get();
+            if (current < quantity) {
+                return false;
+            }
+            if (availableItemCount.compareAndSet(current, current - quantity)) {
+                return true;
+            }
+            // CAS failed because another thread modified stock, retry with fresh value
         }
-        return availableItemCount.compareAndSet(current, current - quantity);
     }
 
     public void incrementStock(int quantity) {
@@ -46,8 +52,10 @@ public class Product {
     public void addReview(Review review) { reviews.add(review); }
 
     public double getAverageRating() {
-        if (reviews.isEmpty()) return 0.0;
-        return reviews.stream().mapToInt(Review::getRating).average().orElse(0.0);
+        synchronized (reviews) {
+            if (reviews.isEmpty()) return 0.0;
+            return reviews.stream().mapToInt(Review::getRating).average().orElse(0.0);
+        }
     }
 
     public String getProductId() { return productId; }

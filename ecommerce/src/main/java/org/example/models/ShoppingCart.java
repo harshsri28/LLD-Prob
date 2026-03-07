@@ -73,7 +73,7 @@ public class ShoppingCart {
         return false;
     }
 
-    public double getTotalAmount() {
+    public synchronized double getTotalAmount() {
         return items.stream().mapToDouble(Item::getTotalPrice).sum();
     }
 

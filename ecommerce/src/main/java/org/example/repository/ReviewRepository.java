@@ -3,13 +3,13 @@ package org.example.repository;
 import org.example.models.Review;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class ReviewRepository {
-    private Map<String, Review> reviews = new HashMap<>();
+    private Map<String, Review> reviews = new ConcurrentHashMap<>();
 
     public void addReview(Review review) {
         reviews.put(review.getReviewId(), review);

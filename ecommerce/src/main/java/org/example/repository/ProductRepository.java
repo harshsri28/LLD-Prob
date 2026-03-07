@@ -4,14 +4,14 @@ import org.example.enums.ProductCategoryType;
 import org.example.models.Product;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class ProductRepository {
-    private Map<String, Product> products = new HashMap<>();
+    private Map<String, Product> products = new ConcurrentHashMap<>();
 
     public void addProduct(Product product) {
         products.put(product.getProductId(), product);

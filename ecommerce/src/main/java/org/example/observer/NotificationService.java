@@ -2,11 +2,11 @@ package org.example.observer;
 
 import org.example.enums.NotificationType;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class NotificationService {
-    private List<NotificationObserver> observers = new ArrayList<>();
+    private List<NotificationObserver> observers = new CopyOnWriteArrayList<>();
 
     public void addObserver(NotificationObserver observer) {
         observers.add(observer);
