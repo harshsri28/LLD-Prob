@@ -4,17 +4,17 @@ import org.example.services.TweetService;
 
 public class CreateTweetCommand implements Command {
     private TweetService tweetService;
-    private String username;
+    private String userId;
     private String text;
 
-    public CreateTweetCommand(TweetService tweetService, String username, String text) {
+    public CreateTweetCommand(TweetService tweetService, String userId, String text) {
         this.tweetService = tweetService;
-        this.username = username;
+        this.userId = userId;
         this.text = text;
     }
 
     @Override
     public void execute() {
-        tweetService.createTweet(username, text);
+        tweetService.createTweet(userId, text);
     }
 }

@@ -26,39 +26,40 @@ public class NotificationService {
     }
 
     /**
-     * Send notification to a specific user.
+     * Send notification to a specific user by userId.
      * Thread-safe: User.addNotification uses synchronizedList.
      */
-    public void notifyUser(String targetUsername, String message, NotificationType type) {
-        Optional<User> userOpt = userRepo.getUserByUsername(targetUsername);
+    public void notifyUser(String targetUserId, String message, NotificationType type) {
+        Optional<User> userOpt = userRepo.getUserById(targetUserId);
         if (userOpt.isEmpty()) return;
 
         User user = userOpt.get();
-        Notification notification = new Notification(targetUsername, message, type);
+        Notification notification = new Notification(targetUserId, message, type);
         user.addNotification(notification);
-        System.out.println("  -> Notification sent to @" + targetUsername + ": [" + type + "] " + message);
+        System.out.println("  -> Notification sent to @" + user.getUsername() + ": [" + type + "] " + message);
     }
 
     /**
      * Notify all followers of a user about an event.
      * For celebrity users (>10K followers), this would be batched/async in production.
      */
-    public void notifyFollowers(String authorUsername, String message, NotificationType type) {
-        Optional<User> authorOpt = userRepo.getUserByUsername(authorUsername);
+    public void notifyFollowers(String authorUserId, String message, NotificationType type) {
+        Optional<User> authorOpt = userRepo.getUserById(authorUserId);
         if (authorOpt.isEmpty()) return;
 
         User author = authorOpt.get();
-        for (String followerUsername : author.getFollowers()) {
-            notifyUser(followerUsername, message, type);
+        for (String followerUserId : author.getFollowers()) {
+            notifyUser(followerUserId, message, type);
         }
     }
 
     /**
      * Notify mentioned users in a tweet/comment.
+     * Accepts userIds of mentioned users.
      */
-    public void notifyMentions(java.util.List<String> mentionedUsernames, String message, NotificationType type) {
-        for (String username : mentionedUsernames) {
-            notifyUser(username, message, type);
+    public void notifyMentions(java.util.List<String> mentionedUserIds, String message, NotificationType type) {
+        for (String userId : mentionedUserIds) {
+            notifyUser(userId, message, type);
         }
     }
 }

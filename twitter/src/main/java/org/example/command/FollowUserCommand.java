@@ -4,17 +4,17 @@ import org.example.services.UserService;
 
 public class FollowUserCommand implements Command {
     private UserService userService;
-    private String followerUsername;
-    private String followeeUsername;
+    private String followerUserId;
+    private String followeeUserId;
 
-    public FollowUserCommand(UserService userService, String followerUsername, String followeeUsername) {
+    public FollowUserCommand(UserService userService, String followerUserId, String followeeUserId) {
         this.userService = userService;
-        this.followerUsername = followerUsername;
-        this.followeeUsername = followeeUsername;
+        this.followerUserId = followerUserId;
+        this.followeeUserId = followeeUserId;
     }
 
     @Override
     public void execute() {
-        userService.followUser(followerUsername, followeeUsername);
+        userService.followUser(followerUserId, followeeUserId);
     }
 }

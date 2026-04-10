@@ -6,10 +6,7 @@ import org.example.command.CommentOnTweetCommand;
 import org.example.command.CreateTweetCommand;
 import org.example.command.FollowUserCommand;
 import org.example.command.LikeTweetCommand;
-import org.example.enums.MediaType;
 import org.example.factory.SearchFactory;
-import org.example.models.Comment;
-import org.example.models.Media;
 import org.example.models.Tweet;
 import org.example.models.User;
 import org.example.observer.EventPublisher;
@@ -25,6 +22,7 @@ import org.example.services.TweetService;
 import org.example.services.UserService;
 import org.example.strategy.searchStrategy.SearchStrategy;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -89,15 +87,16 @@ public class Main {
 
         // ============================================================
         // 5. Follow Users (Command Pattern + Thread-safe Sets)
+        // Now using userId instead of username
         // ============================================================
         System.out.println("=== 5. Follow Users (Command Pattern) ===");
-        Command followCmd1 = new FollowUserCommand(userService, "bob", "alice");
-        Command followCmd2 = new FollowUserCommand(userService, "charlie", "alice");
-        Command followCmd3 = new FollowUserCommand(userService, "diana", "alice");
-        Command followCmd4 = new FollowUserCommand(userService, "eve", "alice");
-        Command followCmd5 = new FollowUserCommand(userService, "alice", "bob");
-        Command followCmd6 = new FollowUserCommand(userService, "charlie", "bob");
-        Command followCmd7 = new FollowUserCommand(userService, "diana", "charlie");
+        Command followCmd1 = new FollowUserCommand(userService, bob.getUserId(), alice.getUserId());
+        Command followCmd2 = new FollowUserCommand(userService, charlie.getUserId(), alice.getUserId());
+        Command followCmd3 = new FollowUserCommand(userService, diana.getUserId(), alice.getUserId());
+        Command followCmd4 = new FollowUserCommand(userService, eve.getUserId(), alice.getUserId());
+        Command followCmd5 = new FollowUserCommand(userService, alice.getUserId(), bob.getUserId());
+        Command followCmd6 = new FollowUserCommand(userService, charlie.getUserId(), bob.getUserId());
+        Command followCmd7 = new FollowUserCommand(userService, diana.getUserId(), charlie.getUserId());
 
         followCmd1.execute();
         followCmd2.execute();
@@ -120,29 +119,29 @@ public class Main {
         // ============================================================
         System.out.println("=== 6. Create Tweets (Builder + Event Pipeline) ===");
 
-        Command tweetCmd1 = new CreateTweetCommand(tweetService, "alice",
+        Command tweetCmd1 = new CreateTweetCommand(tweetService, alice.getUserId(),
                 "Hello Twitter! Excited to start coding in #java #programming @bob");
         tweetCmd1.execute();
         System.out.println();
 
-        Command tweetCmd2 = new CreateTweetCommand(tweetService, "alice",
+        Command tweetCmd2 = new CreateTweetCommand(tweetService, alice.getUserId(),
                 "Just deployed my #microservices app! #java #devops");
         tweetCmd2.execute();
         System.out.println();
 
-        Command tweetCmd3 = new CreateTweetCommand(tweetService, "bob",
+        Command tweetCmd3 = new CreateTweetCommand(tweetService, bob.getUserId(),
                 "Working on a new #opensource project #coding #java");
         tweetCmd3.execute();
         System.out.println();
 
-        Optional<Tweet> charliesTweet = tweetService.createTweet("charlie",
+        Optional<Tweet> charliesTweet = tweetService.createTweet(charlie.getUserId(),
                 "Beautiful sunset today! #photography @diana");
         System.out.println();
 
-        tweetService.createTweet("diana", "Check out my latest photo series #photography #art");
+        tweetService.createTweet(diana.getUserId(), "Check out my latest photo series #photography #art");
         System.out.println();
 
-        tweetService.createTweet("eve", "Streaming tonight at 8pm! #gaming #twitch @alice @bob");
+        tweetService.createTweet(eve.getUserId(), "Streaming tonight at 8pm! #gaming #twitch @alice @bob");
         System.out.println();
 
         // ============================================================
@@ -150,21 +149,21 @@ public class Main {
         // ============================================================
         System.out.println("=== 7. Like Tweets (Thread-safe Likes) ===");
         // Get tweet IDs
-        List<Tweet> aliceTweets = tweetService.getUserTweets("alice");
+        List<Tweet> aliceTweets = tweetService.getUserTweets(alice.getUserId());
         if (!aliceTweets.isEmpty()) {
             long firstTweetId = aliceTweets.get(0).getId();
 
-            Command likeCmd1 = new LikeTweetCommand(tweetService, "bob", firstTweetId);
+            Command likeCmd1 = new LikeTweetCommand(tweetService, bob.getUserId(), firstTweetId);
             likeCmd1.execute();
 
-            Command likeCmd2 = new LikeTweetCommand(tweetService, "charlie", firstTweetId);
+            Command likeCmd2 = new LikeTweetCommand(tweetService, charlie.getUserId(), firstTweetId);
             likeCmd2.execute();
 
-            Command likeCmd3 = new LikeTweetCommand(tweetService, "diana", firstTweetId);
+            Command likeCmd3 = new LikeTweetCommand(tweetService, diana.getUserId(), firstTweetId);
             likeCmd3.execute();
 
             // Try duplicate like (should be rejected)
-            tweetService.likeTweet("bob", firstTweetId);
+            tweetService.likeTweet(bob.getUserId(), firstTweetId);
         }
         System.out.println();
 
@@ -175,14 +174,14 @@ public class Main {
         if (!aliceTweets.isEmpty()) {
             long firstTweetId = aliceTweets.get(0).getId();
 
-            Command commentCmd1 = new CommentOnTweetCommand(tweetService, "bob", firstTweetId,
+            Command commentCmd1 = new CommentOnTweetCommand(tweetService, bob.getUserId(), firstTweetId,
                     "Great tweet @alice! Love the #java content");
             commentCmd1.execute();
 
-            tweetService.commentOnTweet("charlie", firstTweetId,
+            tweetService.commentOnTweet(charlie.getUserId(), firstTweetId,
                     "Welcome to Twitter! @alice @bob");
 
-            tweetService.commentOnTweet("diana", firstTweetId,
+            tweetService.commentOnTweet(diana.getUserId(), firstTweetId,
                     "Awesome! @charlie should check this out too");
         }
         System.out.println();
@@ -235,19 +234,19 @@ public class Main {
         System.out.println("=== 11. Home Timeline (Fan-Out on Write) ===");
 
         System.out.println("\n--- Bob's Home Timeline (page 0, size 5) ---");
-        List<Tweet> bobTimeline = timelineService.getHomeTimeline("bob", 0, 5);
+        List<Tweet> bobTimeline = timelineService.getHomeTimeline(bob.getUserId(), 0, 5);
         if (bobTimeline.isEmpty()) {
             System.out.println("  (empty - using fan-out on read fallback)");
-            bobTimeline = timelineService.getHomeTimeline("bob", 0, 5);
+            bobTimeline = timelineService.getHomeTimeline(bob.getUserId(), 0, 5);
         }
         bobTimeline.forEach(t -> System.out.println("  " + t));
 
         System.out.println("\n--- Charlie's Home Timeline (page 0, size 5) ---");
-        List<Tweet> charlieTimeline = timelineService.getHomeTimeline("charlie", 0, 5);
+        List<Tweet> charlieTimeline = timelineService.getHomeTimeline(charlie.getUserId(), 0, 5);
         charlieTimeline.forEach(t -> System.out.println("  " + t));
 
         System.out.println("\n--- Alice's User Timeline ---");
-        List<Tweet> aliceTimeline = timelineService.getUserTimeline("alice");
+        List<Tweet> aliceTimeline = timelineService.getUserTimeline(alice.getUserId());
         aliceTimeline.forEach(t -> System.out.println("  " + t));
         System.out.println();
 
@@ -255,7 +254,7 @@ public class Main {
         // 12. Unfollow User
         // ============================================================
         System.out.println("=== 12. Unfollow User ===");
-        userService.unfollowUser("eve", "alice");
+        userService.unfollowUser(eve.getUserId(), alice.getUserId());
         System.out.println("@alice now has " + alice.getFollowerCount() + " followers");
         System.out.println();
 
@@ -265,11 +264,11 @@ public class Main {
         System.out.println("=== 13. Delete Tweet ===");
         if (!aliceTweets.isEmpty()) {
             long secondTweetId = aliceTweets.size() > 1 ? aliceTweets.get(1).getId() : aliceTweets.get(0).getId();
-            tweetService.deleteTweet("alice", secondTweetId);
+            tweetService.deleteTweet(alice.getUserId(), secondTweetId);
 
             // Verify deletion - search shouldn't return deleted tweets
             System.out.println("Alice's active tweets after deletion:");
-            tweetService.getUserTweets("alice").forEach(t -> System.out.println("  " + t));
+            tweetService.getUserTweets(alice.getUserId()).forEach(t -> System.out.println("  " + t));
         }
         System.out.println();
 
@@ -291,11 +290,11 @@ public class Main {
         User rateLimitTestUser = userService.createUser("ratelimituser", "Rate Limit Tester");
         rateLimiter.setActionCooldown("tweet", 5000); // Set 5 second cooldown
 
-        Optional<Tweet> rateLimitedTweet = tweetService.createTweet("ratelimituser", "First tweet - this should work!");
+        Optional<Tweet> rateLimitedTweet = tweetService.createTweet(rateLimitTestUser.getUserId(), "First tweet - this should work!");
         System.out.println("First tweet: " + (rateLimitedTweet.isPresent() ? "SUCCESS" : "RATE LIMITED"));
 
         // Immediately try again - should be rate limited (within 5 second window)
-        Optional<Tweet> blockedTweet = tweetService.createTweet("ratelimituser", "Second tweet - this should be blocked!");
+        Optional<Tweet> blockedTweet = tweetService.createTweet(rateLimitTestUser.getUserId(), "Second tweet - this should be blocked!");
         System.out.println("Immediate retry: " + (blockedTweet.isPresent() ? "SUCCESS" : "RATE LIMITED"));
         rateLimiter.setActionCooldown("tweet", 0); // Reset for concurrent demo
         System.out.println();
@@ -308,20 +307,21 @@ public class Main {
         System.out.println("=== 16. Concurrent Like Simulation ===");
 
         // Create a tweet to be liked concurrently
-        Optional<Tweet> popularTweet = tweetService.createTweet("alice", "This will be liked by many users concurrently!");
+        Optional<Tweet> popularTweet = tweetService.createTweet(alice.getUserId(), "This will be liked by many users concurrently!");
         if (popularTweet.isPresent()) {
             long popularTweetId = popularTweet.get().getId();
 
             // Create 20 temporary users to simulate concurrent likes
+            List<User> tempUsers = new ArrayList<>();
             for (int i = 0; i < 20; i++) {
-                userService.createUser("tempuser" + i, "Temp User " + i);
+                tempUsers.add(userService.createUser("tempuser" + i, "Temp User " + i));
             }
 
             ExecutorService executor = Executors.newFixedThreadPool(4);
             for (int i = 0; i < 20; i++) {
-                final String username = "tempuser" + i;
+                final String tempUserId = tempUsers.get(i).getUserId();
                 executor.submit(() -> {
-                    tweetService.likeTweet(username, popularTweetId);
+                    tweetService.likeTweet(tempUserId, popularTweetId);
                 });
             }
 
@@ -348,19 +348,23 @@ public class Main {
 
         ExecutorService tweetExecutor = Executors.newFixedThreadPool(3);
 
+        final String aliceId = alice.getUserId();
+        final String bobId = bob.getUserId();
+        final String charlieId = charlie.getUserId();
+
         Runnable aliceTweeting = () -> {
             for (int i = 0; i < 5; i++) {
-                tweetService.createTweet("alice", "Alice concurrent tweet #" + i + " #concurrent");
+                tweetService.createTweet(aliceId, "Alice concurrent tweet #" + i + " #concurrent");
             }
         };
         Runnable bobTweeting = () -> {
             for (int i = 0; i < 5; i++) {
-                tweetService.createTweet("bob", "Bob concurrent tweet #" + i + " #concurrent");
+                tweetService.createTweet(bobId, "Bob concurrent tweet #" + i + " #concurrent");
             }
         };
         Runnable charlieTweeting = () -> {
             for (int i = 0; i < 5; i++) {
-                tweetService.createTweet("charlie", "Charlie concurrent tweet #" + i + " #concurrent");
+                tweetService.createTweet(charlieId, "Charlie concurrent tweet #" + i + " #concurrent");
             }
         };
 
@@ -374,9 +378,9 @@ public class Main {
         }
 
         System.out.println("\nConcurrent tweet results:");
-        System.out.println("  Alice's total tweets: " + tweetService.getUserTweets("alice").size());
-        System.out.println("  Bob's total tweets: " + tweetService.getUserTweets("bob").size());
-        System.out.println("  Charlie's total tweets: " + tweetService.getUserTweets("charlie").size());
+        System.out.println("  Alice's total tweets: " + tweetService.getUserTweets(alice.getUserId()).size());
+        System.out.println("  Bob's total tweets: " + tweetService.getUserTweets(bob.getUserId()).size());
+        System.out.println("  Charlie's total tweets: " + tweetService.getUserTweets(charlie.getUserId()).size());
         System.out.println();
 
         // ============================================================

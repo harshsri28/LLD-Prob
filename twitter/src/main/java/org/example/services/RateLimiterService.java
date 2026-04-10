@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * In production: backed by Redis with atomic INCR + EXPIRE for distributed rate limiting.
  */
 public class RateLimiterService {
-    // Map<username:action, last action timestamp>
+    // Map<userId:action, last action timestamp>
     private Map<String, AtomicLong> actionTimestamps = new ConcurrentHashMap<>();
     // Map<action, cooldown in milliseconds>
     private Map<String, Long> actionCooldowns = new ConcurrentHashMap<>();
@@ -38,8 +38,8 @@ public class RateLimiterService {
      *
      * @return true if rate-limited (action should be blocked), false if allowed
      */
-    public boolean isRateLimited(String username, String action) {
-        String key = username + ":" + action;
+    public boolean isRateLimited(String userId, String action) {
+        String key = userId + ":" + action;
         long cooldown = actionCooldowns.getOrDefault(action, 5000L);
         long currentTime = System.currentTimeMillis();
 

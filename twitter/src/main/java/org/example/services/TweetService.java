@@ -76,27 +76,27 @@ public class TweetService {
      * Create a tweet - single responsibility: persist + publish event.
      * Side-effects are handled by consumers of the TweetCreatedEvent.
      */
-    public Optional<Tweet> createTweet(String username, String text) {
-        if (rateLimiter.isRateLimited(username, "tweet")) {
-            System.out.println("Tweet rate-limited for @" + username);
+    public Optional<Tweet> createTweet(String userId, String text) {
+        if (rateLimiter.isRateLimited(userId, "tweet")) {
+            System.out.println("Tweet rate-limited for " + userId);
             return Optional.empty();
         }
 
-        Optional<User> userOpt = userRepo.getUserByUsername(username);
+        Optional<User> userOpt = userRepo.getUserById(userId);
         if (userOpt.isEmpty()) {
-            System.out.println("User not found: @" + username);
+            System.out.println("User not found: " + userId);
             return Optional.empty();
         }
 
         User user = userOpt.get();
 
-        // Extract hashtags and mentions from text
+        // Extract hashtags and mentions from text (mentions are usernames from @mentions in text)
         List<String> hashtags = HashtagService.extractHashtags(text);
         List<String> mentions = HashtagService.extractMentions(text);
 
         // Build tweet using Builder pattern
         Tweet tweet = Tweet.builder()
-                .authorUsername(username)
+                .authorUserId(userId)
                 .text(text)
                 .hashtags(hashtags)
                 .mentions(mentions)
@@ -116,19 +116,22 @@ public class TweetService {
         hashtagService.indexHashtags(hashtags, tweet.getId());
 
         // Side-effect 3: Mention notifications (handled by NotificationService)
-        List<String> validMentions = mentions.stream()
-                .filter(m -> userRepo.getUserByUsername(m).isPresent())
+        // Resolve @mention usernames to userIds for notification delivery
+        List<String> validMentionUserIds = mentions.stream()
+                .map(m -> userRepo.getUserByUsername(m))
+                .filter(Optional::isPresent)
+                .map(opt -> opt.get().getUserId())
                 .toList();
-        notificationService.notifyMentions(validMentions,
-                "@" + username + " mentioned you in a tweet.", NotificationType.MENTION);
+        notificationService.notifyMentions(validMentionUserIds,
+                "@" + user.getUsername() + " mentioned you in a tweet.", NotificationType.MENTION);
 
         // Side-effect 4: Notify followers (handled by NotificationService)
-        notificationService.notifyFollowers(username,
-                "@" + username + " just tweeted: \"" + truncate(text, 50) + "\"", NotificationType.TWEET);
+        notificationService.notifyFollowers(userId,
+                "@" + user.getUsername() + " just tweeted: \"" + truncate(text, 50) + "\"", NotificationType.TWEET);
 
         // Publish event for observers
-        eventPublisher.publishEvent(new TwitterEvent(NotificationType.TWEET, username, null, tweet.getId(),
-                "@" + username + " tweeted: \"" + truncate(text, 50) + "\""));
+        eventPublisher.publishEvent(new TwitterEvent(NotificationType.TWEET, userId, null, tweet.getId(),
+                "@" + user.getUsername() + " tweeted: \"" + truncate(text, 50) + "\""));
 
         System.out.println("Tweet created: " + tweet);
         return Optional.of(tweet);
@@ -137,14 +140,14 @@ public class TweetService {
     /**
      * Like a tweet - thread-safe via ConcurrentHashMap.newKeySet().
      */
-    public boolean likeTweet(String username, long tweetId) {
-        if (rateLimiter.isRateLimited(username, "like")) {
-            System.out.println("Like rate-limited for @" + username);
+    public boolean likeTweet(String userId, long tweetId) {
+        if (rateLimiter.isRateLimited(userId, "like")) {
+            System.out.println("Like rate-limited for " + userId);
             return false;
         }
 
         Optional<Tweet> tweetOpt = tweetRepo.getTweetById(tweetId);
-        Optional<User> userOpt = userRepo.getUserByUsername(username);
+        Optional<User> userOpt = userRepo.getUserById(userId);
         if (tweetOpt.isEmpty() || userOpt.isEmpty()) {
             System.out.println("Tweet or user not found");
             return false;
@@ -154,83 +157,86 @@ public class TweetService {
         User user = userOpt.get();
 
         // Thread-safe: Set.add returns false if already present
-        if (!tweet.addLike(username)) {
-            System.out.println("@" + username + " already liked tweet " + tweetId);
+        if (!tweet.addLike(userId)) {
+            System.out.println("@" + user.getUsername() + " already liked tweet " + tweetId);
             return false;
         }
 
         user.addLikedTweetId(tweetId);
 
         // Notify tweet author (don't notify self-likes)
-        if (!username.equals(tweet.getAuthorUsername())) {
-            notificationService.notifyUser(tweet.getAuthorUsername(),
-                    "@" + username + " liked your tweet.", NotificationType.LIKE);
+        if (!userId.equals(tweet.getAuthorUserId())) {
+            notificationService.notifyUser(tweet.getAuthorUserId(),
+                    "@" + user.getUsername() + " liked your tweet.", NotificationType.LIKE);
         }
 
         eventPublisher.publish(NotificationType.LIKE,
-                "@" + username + " liked tweet " + tweetId);
+                "@" + user.getUsername() + " liked tweet " + tweetId);
 
-        System.out.println("@" + username + " liked tweet " + tweetId + " (total likes: " + tweet.getLikeCount() + ")");
+        System.out.println("@" + user.getUsername() + " liked tweet " + tweetId + " (total likes: " + tweet.getLikeCount() + ")");
         return true;
     }
 
     /**
      * Unlike a tweet.
      */
-    public boolean unlikeTweet(String username, long tweetId) {
+    public boolean unlikeTweet(String userId, long tweetId) {
         Optional<Tweet> tweetOpt = tweetRepo.getTweetById(tweetId);
-        Optional<User> userOpt = userRepo.getUserByUsername(username);
+        Optional<User> userOpt = userRepo.getUserById(userId);
         if (tweetOpt.isEmpty() || userOpt.isEmpty()) return false;
 
         Tweet tweet = tweetOpt.get();
         User user = userOpt.get();
 
-        if (!tweet.removeLike(username)) {
-            System.out.println("@" + username + " hasn't liked tweet " + tweetId);
+        if (!tweet.removeLike(userId)) {
+            System.out.println("@" + user.getUsername() + " hasn't liked tweet " + tweetId);
             return false;
         }
 
         user.removeLikedTweetId(tweetId);
-        System.out.println("@" + username + " unliked tweet " + tweetId);
+        System.out.println("@" + user.getUsername() + " unliked tweet " + tweetId);
         return true;
     }
 
     /**
      * Comment on a tweet with mention processing.
      */
-    public Optional<Comment> commentOnTweet(String username, long tweetId, String text) {
-        if (rateLimiter.isRateLimited(username, "comment")) {
-            System.out.println("Comment rate-limited for @" + username);
+    public Optional<Comment> commentOnTweet(String userId, long tweetId, String text) {
+        if (rateLimiter.isRateLimited(userId, "comment")) {
+            System.out.println("Comment rate-limited for " + userId);
             return Optional.empty();
         }
 
         Optional<Tweet> tweetOpt = tweetRepo.getTweetById(tweetId);
-        Optional<User> userOpt = userRepo.getUserByUsername(username);
+        Optional<User> userOpt = userRepo.getUserById(userId);
         if (tweetOpt.isEmpty() || userOpt.isEmpty()) {
             System.out.println("Tweet or user not found");
             return Optional.empty();
         }
 
         Tweet tweet = tweetOpt.get();
-        Comment comment = new Comment(username, tweetId, text);
+        User user = userOpt.get();
+        Comment comment = new Comment(userId, tweetId, text);
         tweet.addComment(comment);
 
         // Notify tweet author (don't notify self-comments)
-        if (!username.equals(tweet.getAuthorUsername())) {
-            notificationService.notifyUser(tweet.getAuthorUsername(),
-                    "@" + username + " commented on your tweet: \"" + truncate(text, 50) + "\"", NotificationType.COMMENT);
+        if (!userId.equals(tweet.getAuthorUserId())) {
+            notificationService.notifyUser(tweet.getAuthorUserId(),
+                    "@" + user.getUsername() + " commented on your tweet: \"" + truncate(text, 50) + "\"", NotificationType.COMMENT);
         }
 
-        // Process mentions in comment
+        // Process mentions in comment - resolve usernames to userIds
         List<String> mentions = HashtagService.extractMentions(text);
-        List<String> validMentions = mentions.stream()
-                .filter(m -> userRepo.getUserByUsername(m).isPresent())
+        List<String> validMentionUserIds = mentions.stream()
+                .map(m -> userRepo.getUserByUsername(m))
+                .filter(Optional::isPresent)
+                .map(opt -> opt.get().getUserId())
                 .toList();
-        notificationService.notifyMentions(validMentions,
-                "@" + username + " mentioned you in a comment.", NotificationType.MENTION);
+        notificationService.notifyMentions(validMentionUserIds,
+                "@" + user.getUsername() + " mentioned you in a comment.", NotificationType.MENTION);
 
         eventPublisher.publish(NotificationType.COMMENT,
-                "@" + username + " commented on tweet " + tweetId);
+                "@" + user.getUsername() + " commented on tweet " + tweetId);
 
         System.out.println("Comment added: " + comment);
         return Optional.of(comment);
@@ -239,15 +245,19 @@ public class TweetService {
     /**
      * Delete a tweet (soft delete).
      */
-    public boolean deleteTweet(String username, long tweetId) {
+    public boolean deleteTweet(String userId, long tweetId) {
         Optional<Tweet> tweetOpt = tweetRepo.getTweetById(tweetId);
         if (tweetOpt.isEmpty()) return false;
 
         Tweet tweet = tweetOpt.get();
+        User user = userRepo.getUserById(userId).orElse(null);
+        String username = user != null ? user.getUsername() : userId;
 
         // Only author can delete their own tweet
-        if (!tweet.getAuthorUsername().equals(username)) {
-            System.out.println("@" + username + " cannot delete tweet by @" + tweet.getAuthorUsername());
+        if (!tweet.getAuthorUserId().equals(userId)) {
+            String authorUsername = userRepo.getUserById(tweet.getAuthorUserId())
+                    .map(User::getUsername).orElse(tweet.getAuthorUserId());
+            System.out.println("@" + username + " cannot delete tweet by @" + authorUsername);
             return false;
         }
 
@@ -267,7 +277,7 @@ public class TweetService {
         }
 
         // Cache miss - search and cache
-        List<Tweet> results = searchStrategy.search(tweetRepo, query);
+        List<Tweet> results = searchStrategy.search(tweetRepo, query, userRepo);
         cacheService.cacheTweets(query, results);
         return results;
     }
@@ -280,8 +290,8 @@ public class TweetService {
         return tweetRepo.getTweetById(tweetId);
     }
 
-    public List<Tweet> getUserTweets(String username) {
-        return tweetRepo.getTweetsByUser(username);
+    public List<Tweet> getUserTweets(String userId) {
+        return tweetRepo.getTweetsByUser(userId);
     }
 
     private String truncate(String text, int maxLength) {

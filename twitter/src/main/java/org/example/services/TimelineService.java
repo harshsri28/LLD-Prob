@@ -49,14 +49,14 @@ public class TimelineService {
      * Uses fan-out on write for normal users (pre-computed timeline).
      * Falls back to fan-out on read if timeline is empty or user follows celebrities.
      */
-    public List<Tweet> getHomeTimeline(String username, int page, int pageSize) {
+    public List<Tweet> getHomeTimeline(String userId, int page, int pageSize) {
         // Default: use fan-out on write (pre-computed)
-        List<Tweet> timeline = fanOutOnWriteStrategy.getTimeline(username, page, pageSize,
+        List<Tweet> timeline = fanOutOnWriteStrategy.getTimeline(userId, page, pageSize,
                 userRepo, tweetRepo, timelineRepo);
 
         // If timeline is empty (new user or following celebrities), fall back to fan-out on read
         if (timeline.isEmpty()) {
-            timeline = fanOutOnReadStrategy.getTimeline(username, page, pageSize,
+            timeline = fanOutOnReadStrategy.getTimeline(userId, page, pageSize,
                     userRepo, tweetRepo, timelineRepo);
         }
 
@@ -66,8 +66,8 @@ public class TimelineService {
     /**
      * Get user timeline (tweets by a specific user).
      */
-    public List<Tweet> getUserTimeline(String username) {
-        return tweetRepo.getTweetsByUser(username);
+    public List<Tweet> getUserTimeline(String userId) {
+        return tweetRepo.getTweetsByUser(userId);
     }
 
     /**
@@ -88,19 +88,23 @@ public class TimelineService {
      * Backfill timeline when a user follows someone new.
      * Adds recent tweets from the followed user to the follower's timeline.
      */
-    public void backfillTimeline(String followerUsername, String followedUsername) {
-        List<Tweet> recentTweets = tweetRepo.getTweetsByUser(followedUsername);
+    public void backfillTimeline(String followerUserId, String followedUserId) {
+        List<Tweet> recentTweets = tweetRepo.getTweetsByUser(followedUserId);
 
-        Optional<User> followedUserOpt = userRepo.getUserByUsername(followedUsername);
+        Optional<User> followedUserOpt = userRepo.getUserById(followedUserId);
         if (followedUserOpt.isEmpty() || followedUserOpt.get().isCelebrity()) {
             return; // Don't backfill for celebrities
         }
 
+        User follower = userRepo.getUserById(followerUserId).orElse(null);
+        User followed = followedUserOpt.get();
+
         for (Tweet tweet : recentTweets) {
-            timelineRepo.getOrCreateTimeline(followerUsername)
+            timelineRepo.getOrCreateTimeline(followerUserId)
                     .addTweet(tweet.getId(), tweet.getCreatedAt().toInstant(java.time.ZoneOffset.UTC).toEpochMilli());
         }
 
-        System.out.println("Backfilled " + recentTweets.size() + " tweets from @" + followedUsername + " to @" + followerUsername + "'s timeline");
+        String followerName = follower != null ? follower.getUsername() : followerUserId;
+        System.out.println("Backfilled " + recentTweets.size() + " tweets from @" + followed.getUsername() + " to @" + followerName + "'s timeline");
     }
 }

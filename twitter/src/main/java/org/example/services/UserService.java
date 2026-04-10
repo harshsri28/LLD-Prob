@@ -33,7 +33,7 @@ public class UserService {
     }
 
     public User createUser(String username, String displayName, String bio, String profilePictureUrl) {
-        if (userRepo.exists(username)) {
+        if (userRepo.existsByUsername(username)) {
             throw new IllegalArgumentException("Username @" + username + " already exists");
         }
         User user = UserFactory.createUser(username, displayName, bio, profilePictureUrl);
@@ -47,16 +47,16 @@ public class UserService {
         return createUser(username, displayName, "", "");
     }
 
-    public void followUser(String followerUsername, String followeeUsername) {
-        if (followerUsername.equals(followeeUsername)) {
+    public void followUser(String followerUserId, String followeeUserId) {
+        if (followerUserId.equals(followeeUserId)) {
             throw new IllegalArgumentException("Cannot follow yourself");
         }
-        if (rateLimiter.isRateLimited(followerUsername, "follow")) {
-            throw new IllegalArgumentException("Follow action rate-limited for @" + followerUsername);
+        if (rateLimiter.isRateLimited(followerUserId, "follow")) {
+            throw new IllegalArgumentException("Follow action rate-limited for " + followerUserId);
         }
 
-        Optional<User> followerOpt = userRepo.getUserByUsername(followerUsername);
-        Optional<User> followeeOpt = userRepo.getUserByUsername(followeeUsername);
+        Optional<User> followerOpt = userRepo.getUserById(followerUserId);
+        Optional<User> followeeOpt = userRepo.getUserById(followeeUserId);
 
         if (followerOpt.isEmpty() || followeeOpt.isEmpty()) {
             throw new IllegalArgumentException("User not found");
@@ -66,22 +66,22 @@ public class UserService {
         User followee = followeeOpt.get();
 
         // Thread-safe: ConcurrentHashMap.newKeySet().add() is atomic
-        follower.addFollowing(followeeUsername);
-        followee.addFollower(followerUsername);
+        follower.addFollowing(followeeUserId);
+        followee.addFollower(followerUserId);
 
         // Async notification via service (not blocking)
-        notificationService.notifyUser(followeeUsername,
-                "@" + followerUsername + " started following you.", NotificationType.FOLLOW);
+        notificationService.notifyUser(followeeUserId,
+                "@" + follower.getUsername() + " started following you.", NotificationType.FOLLOW);
 
         eventPublisher.publish(NotificationType.FOLLOW,
-                "@" + followerUsername + " followed @" + followeeUsername);
+                "@" + follower.getUsername() + " followed @" + followee.getUsername());
 
-        System.out.println("@" + followerUsername + " now follows @" + followeeUsername);
+        System.out.println("@" + follower.getUsername() + " now follows @" + followee.getUsername());
     }
 
-    public void unfollowUser(String followerUsername, String followeeUsername) {
-        Optional<User> followerOpt = userRepo.getUserByUsername(followerUsername);
-        Optional<User> followeeOpt = userRepo.getUserByUsername(followeeUsername);
+    public void unfollowUser(String followerUserId, String followeeUserId) {
+        Optional<User> followerOpt = userRepo.getUserById(followerUserId);
+        Optional<User> followeeOpt = userRepo.getUserById(followeeUserId);
 
         if (followerOpt.isEmpty() || followeeOpt.isEmpty()) {
             throw new IllegalArgumentException("User not found");
@@ -90,10 +90,14 @@ public class UserService {
         User follower = followerOpt.get();
         User followee = followeeOpt.get();
 
-        follower.removeFollowing(followeeUsername);
-        followee.removeFollower(followerUsername);
+        follower.removeFollowing(followeeUserId);
+        followee.removeFollower(followerUserId);
 
-        System.out.println("@" + followerUsername + " unfollowed @" + followeeUsername);
+        System.out.println("@" + follower.getUsername() + " unfollowed @" + followee.getUsername());
+    }
+
+    public Optional<User> getUserById(String userId) {
+        return userRepo.getUserById(userId);
     }
 
     public Optional<User> getUser(String username) {
@@ -104,11 +108,11 @@ public class UserService {
         return userRepo.searchByUsername(query);
     }
 
-    public void deactivateUser(String username) {
-        Optional<User> userOpt = userRepo.getUserByUsername(username);
+    public void deactivateUser(String userId) {
+        Optional<User> userOpt = userRepo.getUserById(userId);
         userOpt.ifPresent(user -> {
             user.setStatus(AccountStatus.DEACTIVATED);
-            System.out.println("User @" + username + " deactivated");
+            System.out.println("User @" + user.getUsername() + " deactivated");
         });
     }
 
