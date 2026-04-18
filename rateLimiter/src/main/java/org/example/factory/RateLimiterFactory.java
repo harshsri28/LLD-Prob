@@ -3,18 +3,22 @@ package org.example.factory;
 import org.example.strategy.*;
 
 public class RateLimiterFactory {
-    public  static RateLimiter create(String type, int maxRequests, long windowSizeMs){
-        switch (type.toLowerCase()){
-            case "sliding":
-                return new SlidingWindowRateLimiter(maxRequests, windowSizeMs);
-            case "fixed":
+    private RateLimiterFactory() {}
+
+    public static RateLimiter create(RateLimiterType type, int maxRequests, long windowSizeMs) {
+        switch (type) {
+            case FIXED:
                 return new FixedWindowRateLimiter(maxRequests, windowSizeMs);
-            case "leaky":
-                return new LeakyBucketRateLimiter(maxRequests, maxRequests);
-            case "token":
-                return new TokenBucketRateLimiter(maxRequests, maxRequests);
+            case SLIDING:
+                return new SlidingWindowRateLimiter(maxRequests, windowSizeMs);
+            case TOKEN:
+                // windowSizeMs is treated as refillRatePerSecond for token bucket
+                return new TokenBucketRateLimiter(maxRequests, windowSizeMs);
+            case LEAKY:
+                // windowSizeMs is treated as leakRatePerSecond for leaky bucket
+                return new LeakyBucketRateLimiter(maxRequests, windowSizeMs);
             default:
-                throw new IllegalArgumentException("Unknown type");
+                throw new IllegalArgumentException("Unknown rate limiter type: " + type);
         }
     }
 }

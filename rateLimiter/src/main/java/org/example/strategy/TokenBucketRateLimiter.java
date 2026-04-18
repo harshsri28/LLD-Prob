@@ -1,41 +1,68 @@
 package org.example.strategy;
 
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 
 public class TokenBucketRateLimiter implements RateLimiter {
-    int capacity;
-    double refillRatePerMs;
+    private final int capacity;
+    private final double refillRatePerMs;
+    private static final long STALE_TTL_MS = 5 * 60_000L;
 
     private static class Bucket {
         double tokens;
         long lastRefill;
+        long lastAccessedAt;
+
+        Bucket(int capacity) {
+            this.tokens = capacity;                      // start with a full bucket
+            this.lastRefill = System.currentTimeMillis();
+            this.lastAccessedAt = this.lastRefill;
+        }
     }
 
-    ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler;
 
     public TokenBucketRateLimiter(int capacity, double refillRatePerSecond) {
         this.capacity = capacity;
         this.refillRatePerMs = refillRatePerSecond / 1000.0;
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "token-bucket-cleanup");
+            t.setDaemon(true);
+            return t;
+        });
+        scheduler.scheduleAtFixedRate(
+            this::evictStaleEntries, STALE_TTL_MS, STALE_TTL_MS, TimeUnit.MILLISECONDS
+        );
     }
 
     @Override
-    public boolean allowedRequest(String clientId) {
+    public boolean isAllowed(String clientId) {
         long currentTime = System.currentTimeMillis();
-        buckets.putIfAbsent(clientId, new Bucket());
+        Bucket b = buckets.computeIfAbsent(clientId, k -> new Bucket(capacity));
 
-        Bucket b = buckets.get(clientId);
-
-        synchronized (b){
+        synchronized (b) {
+            b.lastAccessedAt = currentTime;
             long elapsedTime = currentTime - b.lastRefill;
-            double refilled = elapsedTime * refillRatePerMs;
-            b.tokens = Math.min(capacity, b.tokens + refilled);
+            b.tokens = Math.min(capacity, b.tokens + elapsedTime * refillRatePerMs);
             b.lastRefill = currentTime;
 
-            if(b.tokens < 1) return false;
-
+            if (b.tokens < 1) return false;
             b.tokens--;
             return true;
         }
+    }
 
+    private void evictStaleEntries() {
+        long cutoff = System.currentTimeMillis() - STALE_TTL_MS;
+        buckets.entrySet().removeIf(e -> {
+            synchronized (e.getValue()) {
+                return e.getValue().lastAccessedAt < cutoff;
+            }
+        });
+    }
+
+    @Override
+    public void shutdown() {
+        scheduler.shutdown();
     }
 }
