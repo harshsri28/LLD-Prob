@@ -1,8 +1,12 @@
 package org.example.strategy;
 
-import java.util.concurrent.*;
+import org.example.util.EvictionScheduler;
 
-public class SlidingWindowRateLimiter implements RateLimiter {
+import java.io.Closeable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+
+public class SlidingWindowRateLimiter implements RateLimiter, Closeable {
     private final int maxRequests;
     private final long windowSizeMs;
 
@@ -12,19 +16,12 @@ public class SlidingWindowRateLimiter implements RateLimiter {
     }
 
     private final ConcurrentHashMap<String, ClientLog> logs = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler;
+    private final EvictionScheduler evictor;
 
     public SlidingWindowRateLimiter(int maxRequests, long windowSizeMs) {
         this.maxRequests = maxRequests;
         this.windowSizeMs = windowSizeMs;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "sliding-window-cleanup");
-            t.setDaemon(true);
-            return t;
-        });
-        scheduler.scheduleAtFixedRate(
-            this::evictStaleEntries, windowSizeMs, windowSizeMs, TimeUnit.MILLISECONDS
-        );
+        this.evictor = new EvictionScheduler(this::evictStaleEntries, windowSizeMs, "sliding-window-cleanup");
     }
 
     @Override
@@ -53,7 +50,7 @@ public class SlidingWindowRateLimiter implements RateLimiter {
     }
 
     @Override
-    public void shutdown() {
-        scheduler.shutdown();
+    public void close() {
+        evictor.close();
     }
 }

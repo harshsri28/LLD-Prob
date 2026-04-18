@@ -1,8 +1,11 @@
 package org.example.strategy;
 
-import java.util.concurrent.*;
+import org.example.util.EvictionScheduler;
 
-public class FixedWindowRateLimiter implements RateLimiter {
+import java.io.Closeable;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class FixedWindowRateLimiter implements RateLimiter, Closeable {
     private final int maxRequests;
     private final long windowSizeMs;
 
@@ -19,26 +22,18 @@ public class FixedWindowRateLimiter implements RateLimiter {
     }
 
     private final ConcurrentHashMap<String, Window> windows = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler;
+    // EvictionScheduler owns the thread lifecycle; this class only owns rate-limiting logic (SRP)
+    private final EvictionScheduler evictor;
 
     public FixedWindowRateLimiter(int maxRequests, long windowSizeMs) {
         this.maxRequests = maxRequests;
         this.windowSizeMs = windowSizeMs;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "fixed-window-cleanup");
-            t.setDaemon(true);
-            return t;
-        });
-        // Evict entries not accessed for 2 full windows
-        scheduler.scheduleAtFixedRate(
-            this::evictStaleEntries, windowSizeMs, windowSizeMs, TimeUnit.MILLISECONDS
-        );
+        this.evictor = new EvictionScheduler(this::evictStaleEntries, windowSizeMs, "fixed-window-cleanup");
     }
 
     @Override
     public boolean isAllowed(String clientId) {
         long currentTime = System.currentTimeMillis();
-        // computeIfAbsent is atomic — no separate putIfAbsent + get race
         Window window = windows.computeIfAbsent(clientId, k -> new Window(currentTime));
 
         synchronized (window) {
@@ -63,7 +58,7 @@ public class FixedWindowRateLimiter implements RateLimiter {
     }
 
     @Override
-    public void shutdown() {
-        scheduler.shutdown();
+    public void close() {
+        evictor.close();
     }
 }

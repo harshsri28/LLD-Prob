@@ -5,17 +5,18 @@ import org.example.service.RateLimiterManager;
 
 public class Main {
     public static void main(String[] args) {
-        RateLimiterManager instance = RateLimiterManager.getInstance();
+        RateLimiterManager manager = RateLimiterManager.getInstance();
 
         for (int i = 0; i < 19; i++) {
-            System.out.println(instance.isAllowed("client1"));
+            System.out.println(manager.isAllowed("client1"));
         }
 
         System.out.println("Switching to sliding window");
-        instance.updateRateLimiter(RateLimiterType.SLIDING, 20, 60_000);
+        // Caller creates the limiter; manager only manages it
+        manager.updateRateLimiter(RateLimiterType.SLIDING.create(20, 60_000));
 
         for (int i = 0; i < 22; i++) {
-            System.out.println(instance.isAllowed("client1"));
+            System.out.println(manager.isAllowed("client1"));
         }
     }
 }

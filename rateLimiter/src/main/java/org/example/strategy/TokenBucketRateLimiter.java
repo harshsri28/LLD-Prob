@@ -1,8 +1,11 @@
 package org.example.strategy;
 
-import java.util.concurrent.*;
+import org.example.util.EvictionScheduler;
 
-public class TokenBucketRateLimiter implements RateLimiter {
+import java.io.Closeable;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class TokenBucketRateLimiter implements RateLimiter, Closeable {
     private final int capacity;
     private final double refillRatePerMs;
     private static final long STALE_TTL_MS = 5 * 60_000L;
@@ -13,26 +16,19 @@ public class TokenBucketRateLimiter implements RateLimiter {
         long lastAccessedAt;
 
         Bucket(int capacity) {
-            this.tokens = capacity;                      // start with a full bucket
+            this.tokens = capacity;
             this.lastRefill = System.currentTimeMillis();
             this.lastAccessedAt = this.lastRefill;
         }
     }
 
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler;
+    private final EvictionScheduler evictor;
 
     public TokenBucketRateLimiter(int capacity, double refillRatePerSecond) {
         this.capacity = capacity;
         this.refillRatePerMs = refillRatePerSecond / 1000.0;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "token-bucket-cleanup");
-            t.setDaemon(true);
-            return t;
-        });
-        scheduler.scheduleAtFixedRate(
-            this::evictStaleEntries, STALE_TTL_MS, STALE_TTL_MS, TimeUnit.MILLISECONDS
-        );
+        this.evictor = new EvictionScheduler(this::evictStaleEntries, STALE_TTL_MS, "token-bucket-cleanup");
     }
 
     @Override
@@ -45,7 +41,6 @@ public class TokenBucketRateLimiter implements RateLimiter {
             long elapsedTime = currentTime - b.lastRefill;
             b.tokens = Math.min(capacity, b.tokens + elapsedTime * refillRatePerMs);
             b.lastRefill = currentTime;
-
             if (b.tokens < 1) return false;
             b.tokens--;
             return true;
@@ -62,7 +57,7 @@ public class TokenBucketRateLimiter implements RateLimiter {
     }
 
     @Override
-    public void shutdown() {
-        scheduler.shutdown();
+    public void close() {
+        evictor.close();
     }
 }

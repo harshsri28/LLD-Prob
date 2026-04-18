@@ -1,8 +1,11 @@
 package org.example.strategy;
 
-import java.util.concurrent.*;
+import org.example.util.EvictionScheduler;
 
-public class LeakyBucketRateLimiter implements RateLimiter {
+import java.io.Closeable;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class LeakyBucketRateLimiter implements RateLimiter, Closeable {
     private final int capacity;
     private final double leakRatePerMs;
     private static final long STALE_TTL_MS = 5 * 60_000L;
@@ -14,26 +17,18 @@ public class LeakyBucketRateLimiter implements RateLimiter {
 
         Bucket() {
             this.water = 0;
-            this.lastLeakTime = System.currentTimeMillis();  // start from now, not epoch
+            this.lastLeakTime = System.currentTimeMillis();
             this.lastAccessedAt = this.lastLeakTime;
         }
     }
 
     private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler;
+    private final EvictionScheduler evictor;
 
-    // Parameter is leakRatePerSecond (consistent with TokenBucketRateLimiter)
     public LeakyBucketRateLimiter(int capacity, double leakRatePerSecond) {
         this.capacity = capacity;
         this.leakRatePerMs = leakRatePerSecond / 1000.0;
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "leaky-bucket-cleanup");
-            t.setDaemon(true);
-            return t;
-        });
-        scheduler.scheduleAtFixedRate(
-            this::evictStaleEntries, STALE_TTL_MS, STALE_TTL_MS, TimeUnit.MILLISECONDS
-        );
+        this.evictor = new EvictionScheduler(this::evictStaleEntries, STALE_TTL_MS, "leaky-bucket-cleanup");
     }
 
     @Override
@@ -46,7 +41,6 @@ public class LeakyBucketRateLimiter implements RateLimiter {
             long elapsedTime = currentTime - b.lastLeakTime;
             b.water = Math.max(0, b.water - elapsedTime * leakRatePerMs);
             b.lastLeakTime = currentTime;
-
             if (b.water + 1 > capacity) return false;
             b.water++;
             return true;
@@ -63,7 +57,7 @@ public class LeakyBucketRateLimiter implements RateLimiter {
     }
 
     @Override
-    public void shutdown() {
-        scheduler.shutdown();
+    public void close() {
+        evictor.close();
     }
 }

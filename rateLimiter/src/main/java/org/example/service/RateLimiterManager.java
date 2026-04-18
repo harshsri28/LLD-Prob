@@ -1,22 +1,26 @@
 package org.example.service;
 
-import org.example.factory.RateLimiterFactory;
 import org.example.factory.RateLimiterType;
 import org.example.strategy.RateLimiter;
+
+import java.io.Closeable;
+import java.io.IOException;
 
 public class RateLimiterManager {
     private static volatile RateLimiterManager instance;
     private volatile RateLimiter rateLimiter;
 
-    private RateLimiterManager() {  // private — singleton cannot be bypassed
-        rateLimiter = RateLimiterFactory.create(RateLimiterType.FIXED, 10, 60_000);
+    // Constructor depends only on the RateLimiter abstraction, not on any factory or enum (DIP)
+    private RateLimiterManager(RateLimiter initialLimiter) {
+        this.rateLimiter = initialLimiter;
     }
 
     public static RateLimiterManager getInstance() {
         if (instance == null) {
             synchronized (RateLimiterManager.class) {
                 if (instance == null) {
-                    instance = new RateLimiterManager();
+                    // Default config lives here at the composition root, not buried in the constructor
+                    instance = new RateLimiterManager(RateLimiterType.FIXED.create(10, 60_000));
                 }
             }
         }
@@ -27,10 +31,14 @@ public class RateLimiterManager {
         return rateLimiter.isAllowed(clientId);
     }
 
-    // synchronized — prevents two concurrent updates from silently overwriting each other
-    public synchronized void updateRateLimiter(RateLimiterType type, int maxRequests, long windowSizeMs) {
+    // Caller constructs the new limiter; manager only manages it — no factory dependency (DIP)
+    public synchronized void updateRateLimiter(RateLimiter newLimiter) {
         RateLimiter old = rateLimiter;
-        rateLimiter = RateLimiterFactory.create(type, maxRequests, windowSizeMs);
-        old.shutdown();  // release cleanup thread of the replaced limiter
+        rateLimiter = newLimiter;
+        if (old instanceof Closeable) {
+            try {
+                ((Closeable) old).close();
+            } catch (IOException ignored) {}
+        }
     }
 }
